@@ -1,0 +1,388 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+namespace NaiveBayes
+{
+    public partial class Form1 : Form
+    {
+        string nonLetter;
+        string[] allFiles;
+        string spamFilePath;
+        string nonSpamFilePath;
+        StreamWriter writerSpam;
+        StreamWriter writerNonSpam;
+        List<string> spamMailsList;
+        List<string> nonSpamMailsList;
+        List<string> spamMailWordList;
+        List<string> nonSpamMailWordList;
+        List<string> spamMailWords;
+        List<string> nonSpamMailWords;
+        Dictionary<string, double> spamWordsPossibility;
+        Dictionary<string, double> nonSpamWordsPossibility;
+
+        List<string> testDataList;
+        Dictionary<string, int> testDataMails;
+        List<string> testDataMailsList;
+        List<string> testDataMailsWords;
+        Dictionary<string, int> testResultClass;
+        double possibilitySpam = 1;
+        double possibilityNonSpam = 1;
+
+        int[][] accuracy;
+        double accuracyRate;
+        double SpamPoss;
+        double NonSpamPoss;
+        int TP = 0;
+        int TN = 0;
+        int FP = 0;
+        int FN = 0;
+        public Form1()
+        {
+            accuracy = new int[2][];
+
+            testResultClass = new Dictionary<string, int>();
+            testDataList = new List<string>();
+            testDataMails = new Dictionary<string, int>();
+            testDataMailsList = new List<string>();
+            testDataMailsWords = new List<string>();
+
+            spamWordsPossibility = new Dictionary<string, double>();
+            nonSpamWordsPossibility = new Dictionary<string, double>();
+            nonLetter = "%&/()=?!'^*+-_0123456789";
+            spamMailWords = new List<string>();
+            nonSpamMailWords = new List<string>();
+            spamMailWordList = new List<string>();
+            nonSpamMailWordList = new List<string>();
+            spamMailsList = new List<string>();
+            nonSpamMailsList = new List<string>();
+            spamFilePath = "SpamMails.txt";
+            nonSpamFilePath = "NonSpamMails.txt";
+            writerSpam = new StreamWriter(spamFilePath);
+            writerNonSpam = new StreamWriter(nonSpamFilePath);
+            InitializeComponent();
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            ParseSpamAndNonspamMails();                         // train.csv den alınan verileri spam ve nonspam olarak iki fruba ayırdık.
+            EditSpamMails();                                    // Spam olan maillerin başındaki sınıf belirtecinden arındırarak sadece mail içeriğine ulaştık
+            EditNonSpamMails();                                 // NonSpam olan maillerin başındaki sınıf belirtecinden arındırarak sadece mail içeriğine ulaştık
+            FindSpamWords();                                    // Spam maildeki kelimelerin tamamını bir havuzda topladık. Ama tekrar eden kelimeler de var.
+            FindNonSpamWords();                                 // NonSpam maildeki kelimelerin tamamını bir havuzda topladık. Ama tekrar eden kelimeler de var. 
+            SpamWordPossibility();                              // Her kelimenin spam data da olma olasılığına baktık
+            NonSpamWordPossibility();                           // Her kelimenin non-spam data da olma olasılığına baktık
+
+            GetTestData();                                      // Test datalarını aldık.
+            SplitTestDataList();                                // Test datalarını sınıf belirten 0 ve 1 lerden ayırdık.
+            CalculateSpamOrNonSpamMailPossibility();            // Naive bayes ile olasılık hesapladık.
+            GetClassForTestData();                              // Olasılığa göre sınıf verdik ve başarı ölçtük.
+        }
+
+        private void btnRun_Click(object sender, EventArgs e)
+        {
+            lblTrainQuantity.Text = (spamMailWordList.Count + nonSpamMailWordList.Count).ToString();
+            lblTrainSpam.Text = spamMailWordList.Count.ToString();
+            lblTrainNonSpam.Text = nonSpamMailWordList.Count.ToString();
+            lblTest.Text = testDataList.Count.ToString();
+            //lblTestSpam.Text;
+            // lblTestNonSpam.Text;
+            lblTP.Text = TP.ToString();
+            lblFP.Text = FP.ToString();
+            lblFN.Text = FN.ToString();
+            lblTF.Text = TN.ToString(); 
+            lblAcc.Text = (accuracyRate * 100).ToString();
+
+        }
+
+        /* TRAIN METHODS ********************************************************************************************/
+
+        void ParseSpamAndNonspamMails()
+        {
+            allFiles = File.ReadAllLines("Train30.csv");
+            foreach (string item in allFiles)
+            {
+                if (item.StartsWith("1"))
+                {
+                    if (File.Exists(spamFilePath))
+                    {
+                        writerSpam.Write(item);
+                        spamMailsList.Add(item);
+                    }
+                    else { File.Create(spamFilePath); }
+
+                }
+                else if (item.StartsWith("0"))
+                {
+                    if (File.Exists(nonSpamFilePath))
+                    {
+                        writerNonSpam.Write(item);
+                        nonSpamMailsList.Add(item);
+                    }
+                    else { File.Create(spamFilePath); }
+                }
+            }
+        }
+
+        void EditSpamMails()
+        {
+            string[] splits;
+            foreach (string item in spamMailsList)
+            {
+                splits = item.Split(',');
+                spamMailWordList.Add(splits[1]);
+            }
+        }
+
+        void EditNonSpamMails()
+        {
+            string[] splits;
+            foreach (string item in nonSpamMailsList)
+            {
+                splits = item.Split(',');
+                nonSpamMailWordList.Add(splits[1]);
+            }
+        }
+
+        void FindSpamWords()
+        {
+            foreach (string item in spamMailWordList)
+            {
+                string[] words = item.Split(' ');
+                foreach (string item2 in words)
+                {
+                    if (!item2.Contains(nonLetter))
+                    {
+                        if (item2 != "your" && item2 != "the" && item2 != "are" && item2 != "to" && item2 != "and" && item2 != "in" && item2 != "on" && item2 != "at" && item2 != "it" && item2 != "of" && item2 != "for" && item2 != "is" && item2 != "as")
+                        {
+                            spamMailWords.Add(item2);
+                        }
+                    }
+                }
+            }
+        }
+
+        void FindNonSpamWords()
+        {
+
+            foreach (string item in nonSpamMailWordList)
+            {
+                string[] words = item.Split(' ');
+                foreach (string item2 in words)
+                {
+                    if (!item2.Contains(nonLetter) && !item2.Contains("0123456789"))
+                    {
+                        if (item2 != "your" && item2 != "the" && item2 != "are" && item2 != "to" && item2 != "and" && item2 != "in" && item2 != "on" && item2 != "at" && item2 != "it" && item2 != "of" && item2 != "for" && item2 != "is" && item2 != "as")
+                        {
+                            nonSpamMailWords.Add(item2);
+                        }
+                    }
+                }
+            }
+        }
+
+        void SpamWordPossibility()
+        {
+            List<string> words = new List<string>();
+            foreach (string item in spamMailWords)
+            {
+                double count = 0;
+                foreach (string item2 in spamMailWords)
+                {
+                    if (item.ToLower() == item2.ToLower())
+                    {
+                        count++;
+                    }
+                }
+                double possibility = count / spamMailWords.Capacity;        // TODO: Burada aynı olan kelimeyi almamam lazım.!!
+
+                try
+                {
+                    spamWordsPossibility.Add(item.ToLower(), possibility);
+
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+            }
+        }
+
+        void NonSpamWordPossibility()
+        {
+
+            List<string> words = new List<string>();
+            foreach (string item in nonSpamMailWords)
+            {
+                double count = 0;
+                foreach (string item2 in nonSpamMailWords)
+                {
+                    if (item.ToLower() == item2.ToLower())
+                    {
+                        count++;
+                    }
+                }
+                double possibility = count / nonSpamMailWords.Capacity;        // TODO: Burada aynı olan kelimeyi almamam lazım.!!
+                try
+                {
+                    nonSpamWordsPossibility.Add(item.ToLower(), possibility);
+                }
+                catch (Exception)
+                {
+                    continue;
+                }
+            }
+        }
+
+        /* TEST METHODS *********************************************************************************************/
+
+        void GetTestData()
+        {
+            string[] testData = File.ReadAllLines("Test10.csv");
+            foreach (string item in testData)
+            {
+                testDataList.Add(item);
+            }
+        }
+
+        void SplitTestDataList()
+        {
+            string[] splits;
+            foreach (string item in testDataList)
+            {
+                splits = item.Split(',');
+                int @class = int.Parse(splits[0]);
+                testDataMails.Add(splits[1], @class);
+                testDataMailsList.Add(splits[1]);
+            }
+        }
+
+        void CalculateSpamOrNonSpamMailPossibility()
+        {
+
+            foreach (string item in testDataMailsList)
+            {
+                string[] words = item.Split(' ');
+                foreach (string item2 in words)
+                {
+                    if (item2 != "your" && item2 != "the" && item2 != "are" && item2 != "to" && item2 != "and" && item2 != "in" && item2 != "on" && item2 != "at" && item2 != "it" && item2 != "of" && item2 != "for" && item2 != "is" && item2 != "as")
+                    {
+                        testDataMailsWords.Add(item2.ToLower());
+                    }
+                }
+
+                foreach (string item2 in testDataMailsWords)
+                {
+                    foreach (KeyValuePair<string, double> item3 in spamWordsPossibility)
+                    {
+                        if (item2 == item3.Key)
+                        {
+                            possibilitySpam *= item3.Value;
+                            break;
+                        }
+                    }
+                }
+                foreach (string item2 in testDataMailsWords)
+                {
+                    foreach (KeyValuePair<string, double> item3 in nonSpamWordsPossibility)
+                    {
+                        if (item2 == item3.Key)
+                        {
+                            possibilityNonSpam *= item3.Value;
+                            break;
+                        }
+                    }
+                }
+
+                CalculateBayesianAlgorithmForSpam(possibilitySpam, possibilityNonSpam, ref SpamPoss, ref NonSpamPoss);
+
+                if (SpamPoss > NonSpamPoss)         // spam olma olasılığı non spam olma olasılığından büyük mü direy kontrol ediyoruz.
+                {
+                    testResultClass.Add(item, 1);
+                }
+                else
+                {
+                    testResultClass.Add(item, 0);
+                }
+
+            }
+        }
+        void CalculateBayesianAlgorithmForSpam(double possibility1, double possibility2, ref double SpamPoss, ref double NonSpamPoss)
+        {
+            // P(C|X) = (P(X|C) * P(C))/ P(X)        ANA HESAP MANTIĞI BU
+
+            // Aşağıda ise gelen mailin spam olup olmama olasılığını bulacağız.
+
+            /*
+             Xi ile değişen değişkenler bizim mailimizin içindeki kelimeler.
+             n ise bizim test mailinde olup sözlüğümüzde olan kelimelerin sayısı.
+             P(SPAM) : Train verilerinde spam olma olasılığı.
+             P(NonSpam) : Train verisinde non-spam olma olasılığı.
+             Elimizdeki olasılıkları normalize hale getirmemize gerek duymadım.
+             Kıyas yaparken ihtiyacımız sadece payda kısmı olacak.
+             */
+
+            // P( SPAM OLMA ) = (P(SPAM) * (p(X1 | SPAM) * P(X2 | SPAM) * ... * P(Xn | SPAM))) / (normalize hale getirmek için)
+
+            double posibilityOfSpam = (double)spamMailWordList.Count / (double)(spamMailWordList.Count + nonSpamMailWordList.Count);
+            double posibilityOfNonSpam = (double)spamMailWordList.Count / (double)(spamMailWordList.Count + nonSpamMailWordList.Count);
+
+            // Burada dışardan aldığımı possibility1 değişkeni mail içerisindeki kelimelerin spam havuzunda olma olasılığını belirtiyor
+            // Burada dışardan aldığımı possibility2 değişkeni mail içerisindeki kelimelerin non-spam havuzunda olma olasılığını belirtiyor
+            SpamPoss = posibilityOfSpam * possibility1;
+            NonSpamPoss = possibility2 * possibilityNonSpam;
+        }
+
+        void GetClassForTestData()      // Classification matrix
+        {
+            int[] realDataTestClasses = new int[0];
+            int @class = 0;
+
+            foreach (KeyValuePair<string, int> item in testDataMails)
+            {
+                Array.Resize(ref realDataTestClasses, realDataTestClasses.Length + 1);
+                realDataTestClasses[realDataTestClasses.Length - 1] = item.Value;
+            }
+
+            foreach (KeyValuePair<string, int> item2 in testResultClass)
+            {
+                if (item2.Value == 0)
+                {
+                    if (realDataTestClasses[@class] == 0)
+                    {
+                        TP++;
+                    }
+                    else if (realDataTestClasses[@class] == 1)
+                    {
+                        FP++;
+                    }
+                }
+                if (item2.Value == 1)
+                {
+                    if (realDataTestClasses[@class] == 0)
+                    {
+                        FN++;
+                    }
+                    else if (realDataTestClasses[@class] == 1)
+                    {
+                        TN++;
+                    }
+                }
+            }
+            //accuracy[0][0] = TP;
+            //accuracy[0][1] = FN;
+            //accuracy[1][0] = FP;
+            //accuracy[1][1] = TN;
+
+            accuracyRate = (double)(TP + TN) / (double)(TP + TN + FN + FP);
+        }
+    }
+}
+
